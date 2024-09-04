@@ -1,4 +1,4 @@
-# 🗃️ SQL Server Queries úteis do dia a dia
+# 🗃️ SQL Queries úteis do dia a dia
 
 Bem-vindo ao repositório de queries SQL que uso no meu dia a dia como DBA! 
 
