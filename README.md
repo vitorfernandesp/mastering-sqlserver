@@ -1,10 +1,10 @@
-# 🗃️ SQL Queries úteis do dia a dia
+# 🗃️ SQL Consultas úteis do dia a dia
 
-Bem-vindo ao repositório de queries SQL que uso no meu dia a dia como DBA! 
+Bem-vindo ao repositório de consultas SQL que utilizo diariamente como DBA!
 
-Este repositório contém uma coleção de scripts úteis para diversas tarefas, desde monitoramento até manutenção do banco de dados alguns scripts são da comunidade e foram salvos aqui após utilização.
+Este repositório é uma coleção valiosa de scripts que facilitam diversas tarefas essenciais, desde o monitoramento até a manutenção de bancos de dados. Alguns desses scripts foram criados por mim, enquanto outros são contribuições da comunidade, cuidadosamente selecionados e armazenados aqui após a sua utilização e validação.
 
-## 📂 Tópicos do Repositório
+## 📂 Tópicos
 
 - **📊 Monitoramento**
   
