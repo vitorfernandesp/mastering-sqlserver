@@ -1,0 +1,876 @@
+--2021-08-16 - FELIPE MOURA - inclusão de tratamento caso não exista as tabelas na DTS_TOOLS
+/*
+Select CurrentSize_MB - EstimatedCompression_Page_MB, * from [resultado_compressao]
+Select * from BASES_E_GANHO
+select * from GANHO_POR_INDICE
+
+EXEC SP_ESTIMA_COMPRESSAO 
+'dbAgilusITAU',
+10
+*/
+--DROP TABLE Traces.dbo.BASES_E_GANHO
+
+--EXEC SP_ESTIMA_COMPRESSAO 'ALL',10
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR alter PROC SP_ESTIMA_COMPRESSAO
+(
+  @DBS VARCHAR(MAX) = 'SuperHist',
+  @TAMANHO_A_CONSIDERAR_GB_POR_BASE INT = 10
+)
+AS
+
+--DECLARE 
+
+-- @DBS VARCHAR(MAX) = 'ALL',
+--  @TAMANHO_A_CONSIDERAR_GB_POR_BASE INT = 10
+
+
+if object_id('splitstring') is null
+BEGIN
+exec (
+'CREATE FUNCTION dbo.splitstring ( @stringToSplit VARCHAR(MAX) )
+ RETURNS
+ @returnList TABLE ([value] [nvarchar] (500))
+AS
+BEGIN
+
+ DECLARE @name NVARCHAR(255)
+ DECLARE @pos INT
+
+ WHILE CHARINDEX('','', @stringToSplit) > 0
+ BEGIN
+  SELECT @pos  = CHARINDEX('','', @stringToSplit)  
+  SELECT @name = SUBSTRING(@stringToSplit, 1, @pos-1)
+
+  INSERT INTO @returnList 
+  SELECT @name
+
+  SELECT @stringToSplit = SUBSTRING(@stringToSplit, @pos+1, LEN(@stringToSplit)-@pos)
+ END
+
+ INSERT INTO @returnList
+ SELECT @stringToSplit
+
+ RETURN
+END
+')
+end
+
+if object_id('tempdb..##nm_databases') is not null drop table ##nm_databases
+CREATE TABLE DBO.##NM_DATABASES
+(
+  db varchar(150),
+  status_compressao varchar(200) default 'PENDENTE'
+) 
+
+
+if @DBS = 'ALL'
+BEGIN
+  
+  insert into DBO.##NM_DATABASES (db)
+  select 
+    '' + name + ''
+  from
+    sys.databases
+  where
+    database_id > 4
+  AND state_desc = 'ONLINE'
+
+END
+ELSE
+BEGIN
+  
+  IF OBJECT_ID('tempdb..#existe') is not null drop table #existe
+  select
+    *
+      into #existe
+  from
+    splitstring(@DBS)
+  where 
+    [value] <> ''
+
+  declare @bases_n_existentes varchar(max) = ''
+  
+  select 
+    @bases_n_existentes = @bases_n_existentes + ', ' + '[' + a.[value] + ']'
+  from 
+    #existe a 
+  where
+    not exists (select * from sys.databases  b where '' + a.[value] + '' = b.name AND state_desc = 'ONLINE')   
+
+    SET @bases_n_existentes = rtrim(ltrim(stuff(@bases_n_existentes,1,1,'')))
+  
+  if @bases_n_existentes is not null
+  BEGIN
+
+  SET @bases_n_existentes = 'Estas bases não existem: ' + @bases_n_existentes
+    RAISERROR(@bases_n_existentes,16,1)
+    RETURN
+  END
+
+  insert into DBO.##NM_DATABASES (db)
+  SELECT
+    [VALUE]
+  FROM
+    #existe
+
+END
+
+DECLARE
+-- CONSIDERAR COMPRESSÃO DE BASES A PARTIR DE 10GB.
+  @TAMANHO_A_CONSIDERAR_GB INT = @TAMANHO_A_CONSIDERAR_GB_POR_BASE -- GB
+
+-- inicio do script, sem necessidade de alteração abaixo.
+if object_id('DTS_TOOLS.dbo.resultado_compressao') is null
+BEGIN
+CREATE TABLE DTS_TOOLS.[dbo].[resultado_compressao](
+  [DB] [nvarchar](128) NULL,
+  [ObjectName] [varchar](501) NULL,
+  [IndexID] [int] NULL,
+  [IndexName] [varchar](255) NULL,
+  [IndexType] [varchar](50) NULL,
+  [PartitionNumber] [int] NULL,
+  [RowCount] [bigint] NULL,
+  [user_seeks] [bigint] NOT NULL,
+  [user_scans] [bigint] NOT NULL,
+  [user_lookups] [bigint] NOT NULL,
+  [user_updates] [bigint] NOT NULL,
+  [total_reads] [bigint] NULL,
+  [page_latch_wait_count] [bigint] NOT NULL,
+  [page_io_latch_wait_count] [bigint] NOT NULL,
+  [CurrentCompression] [varchar](50) NULL,
+  [CurrentSize_MB] int NULL,
+  [EstimatedCompression_None_MB] int NULL,
+  [EstimatedCompression_Row_MB] int NULL,
+  [EstimatedCompression_Page_MB] int NULL,
+  [CurrentFillFactor] [int] NULL,
+  [FragmentationPercent] int NULL,
+  [RowPercentSaving] int NULL,
+  [PagePercentSaving] int NULL,
+  [RecomendedCompression] [varchar](50) NULL,
+  [BufferPoolSpaceUsed_MB] INT NOT NULL,
+  [BufferPoolFreeSpace_MB] INT NOT NULL,
+  [SqlToCompressHeap] [varchar](max) NULL
+  ) ON [PRIMARY]
+END
+ELSE
+BEGIN
+
+IF object_id('DTS_TOOLS.dbo.resultado_compressao') IS NOT NULL
+BEGIN
+
+TRUNCATE TABLE DTS_TOOLS.dbo.[resultado_compressao]
+
+END
+
+IF object_id('DTS_TOOLS.dbo.BASES_E_GANHO') IS NOT NULL
+BEGIN
+
+TRUNCATE TABLE DTS_TOOLS.dbo.BASES_E_GANHO
+
+END
+
+IF object_id('DTS_TOOLS.dbo.GANHO_POR_INDICE') IS NOT NULL
+BEGIN
+
+TRUNCATE TABLE DTS_TOOLS.dbo.GANHO_POR_INDICE
+
+END
+
+
+END
+
+
+-- utilizando cursor porque o tamanho da sp_msforeachdb não suporta essa quantidade de caracteres(script mto grande).
+
+DECLARE @db_name AS nvarchar(max)
+DECLARE c_db_names CURSOR FOR
+SELECT '[' + name + ']'
+FROM sys.databases a 
+WHERE name NOT IN('master', 'model', 'msdb', 'tempdb')
+and exists (select * from ##nm_databases b where b.db = '' + a.name + '')
+AND state_desc = 'ONLINE'
+
+OPEN c_db_names
+
+FETCH c_db_names INTO @db_name
+
+WHILE @@Fetch_Status = 0
+BEGIN
+  EXEC('
+   USE ' + @db_name + '
+ 
+set nocount on 
+
+ UPDATE ##nm_databases
+SET
+  status_compressao = ''EM ANDAMENTO''
+where
+  DB = db_name()
+
+-- Collect BP usage before compression estimate... 
+IF OBJECT_ID(''tempdb.dbo.#tmpBufferDescriptors'') IS NOT NULL 
+  DROP TABLE #tmpBufferDescriptors
+
+SELECT allocation_unit_id, 
+        (count(*) * 8) / 1024. as CacheSizeMB, 
+        (SUM(CONVERT(float, free_space_in_bytes)) / 1024.) / 1024. AS FreeSpaceMB
+  INTO #tmpBufferDescriptors
+  FROM sys.dm_os_buffer_descriptors
+ WHERE dm_os_buffer_descriptors.database_id = db_id()
+   AND dm_os_buffer_descriptors.page_type in (''data_page'', ''index_page'')
+ GROUP BY allocation_unit_id
+
+CREATE CLUSTERED INDEX ix1 ON #tmpBufferDescriptors (Allocation_unit_id)
+
+
+DECLARE @default_ff INT,
+        @statusMsg  VARCHAR(MAX) = '''',
+        @tableCount INT,
+        @i          INT = 0,
+        @EstimateNoneCompression CHAR(1) = ''N'', -- SET to ''Y'' to test NONE compression option
+        @TabName VARCHAR(2000) = NULL --''interf_nfe''; -- Leave this NULL to run script for all Objs
+
+SELECT @default_ff = CASE
+                         WHEN value_in_use = 0 THEN
+                             100
+                         ELSE
+                             CONVERT(INT, value_in_use)
+                     END
+FROM sys.configurations WITH (NOLOCK)
+WHERE name = ''fill factor (%)'';
+
+IF OBJECT_ID(''tempdb..#ObjEst'') IS NOT NULL
+    DROP TABLE #ObjEst;
+
+CREATE TABLE #ObjEst
+(
+    PK INT IDENTITY NOT NULL PRIMARY KEY,
+    object_name VARCHAR(250),
+    schema_name VARCHAR(250),
+    index_id INT,
+    partition_number INT,
+    size_with_current_compression_setting BIGINT,
+    size_with_requested_compression_setting BIGINT,
+    sample_size_with_current_compression_setting BIGINT,
+    sample_size_with_requested_compresison_setting BIGINT
+);
+
+IF OBJECT_ID(''tempdb..#dbEstimate'') IS NOT NULL
+    DROP TABLE #dbEstimate;
+
+CREATE TABLE #dbEstimate
+(
+    PK INT IDENTITY NOT NULL PRIMARY KEY,
+    objectid INT,
+    schema_name VARCHAR(250),
+    object_name VARCHAR(250),
+    index_id INT,
+    index_fill_factor INT,
+    ixName VARCHAR(255),
+    ixType VARCHAR(50),
+    partition_number INT,
+    data_compression_desc VARCHAR(50),
+    None_Size INT,
+    Row_Size INT,
+    Page_Size INT,
+    Current_Size INT
+);
+
+INSERT INTO #dbEstimate
+(
+    objectid,
+    schema_name,
+    object_name,
+    index_id,
+    ixName,
+    index_fill_factor,
+    ixType,
+    partition_number,
+    data_compression_desc
+)
+SELECT o.object_id,
+       S.name,
+       O.name,
+       I.index_id,
+       I.name,
+       CASE
+           WHEN I.fill_factor = 0 THEN
+               @default_ff
+           ELSE
+               I.fill_factor
+       END,
+       I.type_desc,
+       P.partition_number,
+       P.data_compression_desc
+FROM sys.schemas AS S
+    INNER JOIN sys.objects AS O
+        ON S.schema_id = O.schema_id
+    INNER JOIN sys.indexes AS I
+        ON O.object_id = I.object_id
+    INNER JOIN sys.partitions AS P
+        ON I.object_id = P.object_id
+           AND I.index_id = P.index_id
+WHERE O.type = ''U''
+  AND (o.name = @TabName OR @TabName IS NULL);
+
+SELECT @tableCount = COUNT(*) FROM #dbEstimate;
+
+-- Determine Compression Estimates
+DECLARE @PK INT,
+        @ObjectID INT,
+        @Schema VARCHAR(150),
+        @object VARCHAR(250),
+        @DAD VARCHAR(25),
+        @partNO INT,
+        @indexID INT,
+        @SQL NVARCHAR(MAX),
+        @ixName VARCHAR(250);
+
+DECLARE cCompress CURSOR FAST_FORWARD READ_ONLY FOR
+SELECT schema_name,
+       object_name,
+       index_id,
+       ixName,
+       partition_number,
+       data_compression_desc
+FROM #dbEstimate;
+
+OPEN cCompress;
+
+FETCH cCompress
+INTO @Schema,
+     @object,
+     @indexID,
+     @ixName,
+     @partNO,
+     @DAD; -- prime the cursor
+
+WHILE @@Fetch_Status = 0
+BEGIN
+    SET @i = @i + 1;
+
+    SET @statusMsg = ''Working on DB ''''' + @db_name + ''''' '' + CAST(@i AS VARCHAR(10)) 
+        + '' of '' + CAST(@tableCount AS VARCHAR(10)) + '' obj = '' + @object + ''.'' + ISNULL(@ixName,''HEAP'')
+
+    IF @DAD = ''COLUMNSTORE''
+    BEGIN
+      SET @statusMsg = ''Working on '' + CAST(@i AS VARCHAR(10)) 
+          + '' of '' + CAST(@tableCount AS VARCHAR(10)) + '' Skipping obj as it is set to ColumnStore = '' + @object + ''.'' + ISNULL(@ixName,''HEAP'')
+    END
+
+    SET @statusMsg = REPLACE(REPLACE(@statusMsg, CHAR(13), ''''), CHAR(10), '''')
+    RAISERROR(@statusMsg, 0, 42) WITH NOWAIT;
+
+    BEGIN TRY   
+      IF @DAD = ''none''
+      BEGIN
+          -- estimate Page compression
+          INSERT #ObjEst
+          (
+              object_name,
+              schema_name,
+              index_id,
+              partition_number,
+              size_with_current_compression_setting,
+              size_with_requested_compression_setting,
+              sample_size_with_current_compression_setting,
+              sample_size_with_requested_compresison_setting
+          )
+          EXEC sp_estimate_data_compression_savings @schema_name = @Schema,
+                                                    @object_name = @object,
+                                                    @index_id = @indexID,
+                                                    @partition_number = @partNO,
+                                                    @data_compression = ''page'';
+
+          UPDATE #dbEstimate
+          SET None_Size = O.size_with_current_compression_setting,
+              Page_Size = O.size_with_requested_compression_setting
+          FROM #dbEstimate D
+              INNER JOIN #ObjEst O
+                  ON D.schema_name = O.schema_name
+                     AND D.object_name = O.object_name
+                     AND D.index_id = O.index_id
+                     AND D.partition_number = O.partition_number;
+
+          DELETE #ObjEst;
+
+          -- estimate Row compression
+          INSERT #ObjEst
+          (
+              object_name,
+              schema_name,
+              index_id,
+              partition_number,
+              size_with_current_compression_setting,
+              size_with_requested_compression_setting,
+              sample_size_with_current_compression_setting,
+              sample_size_with_requested_compresison_setting
+          )
+          EXEC sp_estimate_data_compression_savings @schema_name = @Schema,
+                                                    @object_name = @object,
+                                                    @index_id = @indexID,
+                                                    @partition_number = @partNO,
+                                                    @data_compression = ''row'';
+
+          UPDATE #dbEstimate
+          SET Row_Size = O.size_with_requested_compression_setting
+          FROM #dbEstimate D
+              INNER JOIN #ObjEst O
+                  ON D.schema_name = O.schema_name
+                     AND D.object_name = O.object_name
+                     AND D.index_id = O.index_id
+                     AND D.partition_number = O.partition_number;
+
+          DELETE #ObjEst;
+      END; -- none compression estimate     
+
+      IF @DAD = ''row''
+      BEGIN
+          -- estimate Page compression
+          INSERT #ObjEst
+          (
+              object_name,
+              schema_name,
+              index_id,
+              partition_number,
+              size_with_current_compression_setting,
+              size_with_requested_compression_setting,
+              sample_size_with_current_compression_setting,
+              sample_size_with_requested_compresison_setting
+          )
+          EXEC sp_estimate_data_compression_savings @schema_name = @Schema,
+                          @object_name = @object,
+                                                    @index_id = @indexID,
+                                                    @partition_number = @partNO,
+                                                    @data_compression = ''page'';
+
+          UPDATE #dbEstimate
+          SET Row_Size = O.size_with_current_compression_setting,
+              Page_Size = O.size_with_requested_compression_setting
+          FROM #dbEstimate D
+              INNER JOIN #ObjEst O
+                  ON D.schema_name = O.schema_name
+                     AND D.object_name = O.object_name
+                     AND D.index_id = O.index_id
+                     AND D.partition_number = O.partition_number;
+
+          DELETE #ObjEst;
+
+          IF @EstimateNoneCompression = ''Y''
+          BEGIN
+            -- estimate None compression
+            INSERT #ObjEst
+            (
+                object_name,
+                schema_name,
+                index_id,
+                partition_number,
+                size_with_current_compression_setting,
+                size_with_requested_compression_setting,
+                sample_size_with_current_compression_setting,
+                sample_size_with_requested_compresison_setting
+            )
+            EXEC sp_estimate_data_compression_savings @schema_name = @Schema,
+                                                      @object_name = @object,
+                                                      @index_id = @indexID,
+                                                      @partition_number = @partNO,
+                                                      @data_compression = ''none'';
+          END
+
+          UPDATE #dbEstimate
+          SET None_Size = O.size_with_requested_compression_setting
+          FROM #dbEstimate D
+              INNER JOIN #ObjEst O
+                  ON D.schema_name = O.schema_name
+                     AND D.object_name = O.object_name
+                     AND D.index_id = O.index_id
+                     AND D.partition_number = O.partition_number;
+
+          DELETE #ObjEst;
+      END; -- row compression estimate    
+
+      IF @DAD = ''page''
+      BEGIN
+          -- estimate Row compression
+          INSERT #ObjEst
+          (
+              object_name,
+              schema_name,
+              index_id,
+              partition_number,
+              size_with_current_compression_setting,
+              size_with_requested_compression_setting,
+              sample_size_with_current_compression_setting,
+              sample_size_with_requested_compresison_setting
+          )
+          EXEC sp_estimate_data_compression_savings @schema_name = @Schema,
+                                                    @object_name = @object,
+                                                    @index_id = @indexID,
+                                                    @partition_number = @partNO,
+                                                    @data_compression = ''page'';
+
+          UPDATE #dbEstimate
+          SET Page_Size = O.size_with_current_compression_setting,
+              Row_Size = O.size_with_requested_compression_setting
+          FROM #dbEstimate D
+              INNER JOIN #ObjEst O
+                  ON D.schema_name = O.schema_name
+                     AND D.object_name = O.object_name
+                     AND D.index_id = O.index_id
+                     AND D.partition_number = O.partition_number;
+
+          DELETE #ObjEst;
+
+          IF @EstimateNoneCompression = ''Y''
+          BEGIN
+            -- estimate None compression
+            INSERT #ObjEst
+            (
+                object_name,
+                schema_name,
+                index_id,
+                partition_number,
+                size_with_current_compression_setting,
+                size_with_requested_compression_setting,
+                sample_size_with_current_compression_setting,
+                sample_size_with_requested_compresison_setting
+            )
+            EXEC sp_estimate_data_compression_savings @schema_name = @Schema,
+                                                      @object_name = @object,
+                                                      @index_id = @indexID,
+                                                      @partition_number = @partNO,
+                                                      @data_compression = ''none'';
+          END
+
+          UPDATE #dbEstimate
+          SET None_Size = O.size_with_requested_compression_setting
+          FROM #dbEstimate D
+              INNER JOIN #ObjEst O
+                  ON D.schema_name = O.schema_name
+                     AND D.object_name = O.object_name
+                     AND D.index_id = O.index_id
+                     AND D.partition_number = O.partition_number;
+
+          DELETE #ObjEst;
+      END; -- page compression estimate
+     END TRY
+    BEGIN CATCH
+      SET @statusMsg = ''Error processing obj '' + @object + ''.'' + ISNULL(@ixName,''HEAP'') + '' skipping this obj... ErrMsg = '' + ERROR_MESSAGE()
+      RAISERROR(@statusMsg, 0, 42) WITH NOWAIT;
+    END CATCH
+
+    FETCH cCompress
+    INTO @Schema,
+         @object,
+         @indexID,
+         @ixName,
+         @partNO,
+         @DAD;
+END;
+
+CLOSE cCompress;
+
+DEALLOCATE cCompress;
+
+
+DELETE FROM #dbEstimate
+WHERE ixType = ''NONCLUSTERED COLUMNSTORE''
+
+UPDATE #dbEstimate SET Current_Size = t.col1
+FROM #dbEstimate 
+CROSS APPLY (select sum((st.reserved_page_count * 8))  col1 from sys.dm_db_partition_stats st
+    where #dbEstimate.objectid = st.object_id
+   AND #dbEstimate.index_id = st.index_id) as t
+
+UPDATE #dbEstimate SET Current_Size = 1 WHERE Current_Size = 0
+UPDATE #dbEstimate SET None_Size = 1 WHERE None_Size = 0
+UPDATE #dbEstimate SET Row_Size  = 1 WHERE Row_Size  = 0
+UPDATE #dbEstimate SET Page_Size = 1 WHERE Page_Size = 0
+
+
+SET @statusMsg = ''Collecting index fragmentation info...''
+RAISERROR(@statusMsg, 0, 42) WITH NOWAIT;
+
+
+
+IF OBJECT_ID(''tempdb.dbo.#tmp1'') IS NOT NULL 
+  DROP TABLE #tmp1
+
+
+SELECT * 
+  INTO #tmp1 
+  FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, ''LIMITED'')
+ WHERE dm_db_index_physical_stats.alloc_unit_type_desc = ''IN_ROW_DATA''
+
+
+
+CREATE NONCLUSTERED INDEX ix1
+ON [dbo].#dbEstimate ([objectid],[index_id])
+INCLUDE ([schema_name],[object_name],[index_fill_factor],[ixName],[ixType],[partition_number],[data_compression_desc],[None_Size],[Row_Size],[Page_Size])
+
+CREATE CLUSTERED INDEX ix1
+ON [dbo].#tmp1 ([object_id],[index_id])
+
+insert into DTS_TOOLS.dbo.resultado_compressao
+-- report findings
+SELECT 
+    DB_NAME() AS DB,
+    schema_name + ''.'' + object_name AS ObjectName,
+       #dbEstimate.index_id AS IndexID,
+       ixName AS IndexName,
+       ixType AS IndexType,
+       #dbEstimate.partition_number AS PartitionNumber,
+       st.row_count AS "RowCount",
+       ISNULL(dm_db_index_usage_stats.user_seeks,0) AS user_seeks,
+       ISNULL(dm_db_index_usage_stats.user_scans,0) AS user_scans,
+       ISNULL(dm_db_index_usage_stats.user_lookups,0) AS user_lookups,
+       ISNULL(dm_db_index_usage_stats.user_updates,0) AS user_updates,
+       ISNULL(dm_db_index_usage_stats.user_seeks,0) + ISNULL(dm_db_index_usage_stats.user_scans,0) + ISNULL(dm_db_index_usage_stats.user_lookups,0) + ISNULL(dm_db_index_usage_stats.user_updates,0) AS total_reads,
+       ISNULL(ios.page_latch_wait_count,0) AS page_latch_wait_count, -- Cumulative number of times the Database Engine waited, because of latch contention.
+       ISNULL(ios.page_io_latch_wait_count,0) AS page_io_latch_wait_count, -- Cumulative number of times the Database Engine waited on an I/O page latch. 
+       data_compression_desc AS CurrentCompression,
+       ROUND((CAST(Current_Size AS Numeric(18,2)) / 1024), 2) AS ''CurrentSize_MB'',
+       ROUND((CAST(None_Size AS Numeric(18,2)) / 1024), 2) AS ''EstimatedCompression_None_MB'',
+       ROUND((CAST(Row_Size AS Numeric(18,2)) / 1024), 2) AS ''EstimatedCompression_Row_MB'',
+       ROUND(CAST(Page_Size AS Numeric(18,2)) / 1024, 2) AS ''EstimatedCompression_Page_MB'',
+       index_fill_factor AS ''CurrentFillFactor'',
+       indexstats.avg_fragmentation_in_percent AS ''FragmentationPercent'',
+       ROUND((1 - (CAST(Row_Size AS Numeric(18,2)) / Current_Size)) * 100, 2) AS ''RowPercentSaving'',
+       ROUND((1 - (CAST(Page_Size AS Numeric(18,2)) / Current_Size)) * 100, 2) AS ''PagePercentSaving'',
+       Tab1.Compressao_Recomendada AS ''RecomendedCompression'',
+       ISNULL(bp.CacheSizeMB,0) AS ''BufferPoolSpaceUsed_MB'',
+       ISNULL(bp.FreeSpaceMB,0) AS ''BufferPoolFreeSpace_MB'',
+       CASE ixType 
+         WHEN ''HEAP'' THEN ''ALTER TABLE "'' + schema_name + ''"."'' + object_name + ''" REBUILD WITH(DATA_COMPRESSION='' + Tab1.Compressao_Recomendada + '', ONLINE=ON)'' 
+         ELSE ''ALTER INDEX "'' + ISNULL(ixName,''ALL'') +''" ON "'' + schema_name + ''"."'' + object_name + ''" REBUILD WITH(DATA_COMPRESSION='' + Tab1.Compressao_Recomendada + '', ONLINE=ON)''
+       END AS SqlToCompressHeap
+  FROM #dbEstimate
+ INNER JOIN (SELECT object_id as objectid,
+                    object_name(object_id) as name,
+                    allocation_unit_id,
+                    p.index_id,
+                    au.type_desc
+               FROM sys.allocation_units as au
+              INNER JOIN sys.partitions as p
+                 ON au.container_id = p.hobt_id) as obj
+    ON #dbEstimate.objectid = obj.objectid
+   AND #dbEstimate.index_id = obj.index_id
+ INNER JOIN sys.dm_db_partition_stats st
+    ON #dbEstimate.objectid = st.object_id
+   AND #dbEstimate.index_id = st.index_id
+  LEFT OUTER JOIN #tmpBufferDescriptors as bp
+    ON bp.allocation_unit_id = obj.allocation_unit_id
+  LEFT OUTER JOIN #tmp1 indexstats
+    ON #dbEstimate.objectid = indexstats.object_id
+   AND #dbEstimate.index_id = indexstats.index_id
+  LEFT OUTER JOIN sys.dm_db_index_usage_stats dm_db_index_usage_stats WITH (NOLOCK) 
+    ON dm_db_index_usage_stats.index_id = obj.index_id
+   AND dm_db_index_usage_stats.object_id = obj.objectid
+   AND dm_db_index_usage_stats.database_id = DB_ID()
+ OUTER APPLY sys.dm_db_index_operational_stats(DB_ID(), obj.objectid, obj.index_id, NULL) AS ios
+  CROSS APPLY (SELECT CASE
+                          WHEN (1 - (CAST(Row_Size AS Numeric(18,2)) / Current_Size)) >= .10
+                               AND (Row_Size <= Page_Size) THEN
+                              ''Row''
+                          WHEN (1 - (CAST(Page_Size AS Numeric(18,2)) / Current_Size)) >= .10
+                               AND (Page_Size <= Row_Size) THEN
+                              ''Page''
+                          ELSE
+                              data_compression_desc
+                      END AS Compressao_Recomendada) AS Tab1
+  WHERE obj. type_desc = ''IN_ROW_DATA''
+ORDER BY CurrentSize_MB DESC
+
+UPDATE ##nm_databases
+SET
+  status_compressao = ''FINALIZADO''
+where
+  DB = ''['' + db_name() + '']''
+')
+FETCH c_db_names INTO @db_name
+END
+CLOSE c_db_names
+DEALLOCATE c_db_names
+
+
+--------
+
+IF OBJECT_ID('TEMPDB..#BASES_E_GANHO') IS NOT NULL DROP TABLE #BASES_E_GANHO
+
+
+-------- DAQUI PARA BAIXO NÃO PRECISA CONFERIR, SÓ EXECUTAR.
+
+DECLARE @EDITION_SQL VARCHAR(500) = 
+  (SELECT
+    CASE WHEN CONVERT(VARCHAR(500),(SELECT  SERVERPROPERTY('Edition'))) LIKE '%DEVELOPER%' OR 
+          CONVERT(VARCHAR(500),(SELECT  SERVERPROPERTY('Edition')))  LIKE '%ENTERPRISE%'
+          THEN ', ONLINE = ON '
+    ELSE ''
+    END
+)
+
+-- CONFERINDO INDICES DUPLICADOS E COLUMNSTORE
+IF OBJECT_ID('TEMPDB..#CTE') IS NOT NULL DROP TABLE #CTE
+
+SELECT DISTINCT
+  [DB],'[' + STUFF([OBJECTNAME],CHARINDEX('.',[OBJECTNAME]),1,'].[')  + ']' [OBJECTNAME],[IndexID],[IndexName],EstimatedCompression_None_MB,EstimatedCompression_Row_MB,
+  EstimatedCompression_Page_MB,currentsize_mb,
+  CASE
+    WHEN EstimatedCompression_None_MB <= EstimatedCompression_Row_MB AND EstimatedCompression_None_MB <= EstimatedCompression_Page_MB THEN 'NONE'
+    WHEN EstimatedCompression_Row_MB <= EstimatedCompression_None_MB AND EstimatedCompression_Row_MB <= EstimatedCompression_Page_MB THEN 'ROW'
+    WHEN EstimatedCompression_Page_MB <= EstimatedCompression_None_MB AND EstimatedCompression_Page_MB <= EstimatedCompression_Row_MB THEN 'PAGE'
+  end as Tipo_Compressao,
+  CurrentCompression
+  INTO #CTE
+FROM
+  DTS_TOOLS.dbo.resultado_compressao
+WHERE
+  INDEXTYPE NOT LIKE '%COLUMNSTORE%'
+  -- desconsiderando os indices que é melhor nao aplicar compressao
+  --and not (EstimatedCompression_None_MB <= EstimatedCompression_Row_MB AND EstimatedCompression_None_MB <= EstimatedCompression_Page_MB)
+
+IF OBJECT_ID('TEMPDB..#GANHO_POR_INDICE') IS NOT NULL DROP TABLE #GANHO_POR_INDICE
+
+SELECT
+[DB],[ObjectName],[IndexID],[IndexName],Tipo_Compressao,CurrentCompression,
+--------------
+currentsize_mb Tamanho_antes,
+--------------------
+(CASE
+  WHEN EstimatedCompression_None_MB <= EstimatedCompression_Row_MB AND EstimatedCompression_None_MB <= EstimatedCompression_Page_MB THEN EstimatedCompression_None_MB
+WHEN EstimatedCompression_Row_MB <= EstimatedCompression_None_MB AND EstimatedCompression_Row_MB <= EstimatedCompression_Page_MB THEN EstimatedCompression_Row_MB
+WHEN EstimatedCompression_Page_MB <= EstimatedCompression_None_MB AND EstimatedCompression_Page_MB <= EstimatedCompression_Row_MB THEN EstimatedCompression_Page_MB
+end) Tamanho_Depois,
+-------------------------
+currentsize_mb - 
+(CASE
+  WHEN EstimatedCompression_None_MB <= EstimatedCompression_Row_MB AND EstimatedCompression_None_MB <= EstimatedCompression_Page_MB THEN EstimatedCompression_None_MB
+WHEN EstimatedCompression_Row_MB <= EstimatedCompression_None_MB AND EstimatedCompression_Row_MB <= EstimatedCompression_Page_MB THEN EstimatedCompression_Row_MB
+WHEN EstimatedCompression_Page_MB <= EstimatedCompression_None_MB AND EstimatedCompression_Page_MB <= EstimatedCompression_Row_MB THEN EstimatedCompression_Page_MB
+end
+)
+as Ganho_MB,
+
+CASE WHEN IndexID = 0 then 'ALTER TABLE [' + [DB] + '].' + [OBJECTNAME] + ' REBUILD WITH (DATA_COMPRESSION = ' + Tipo_Compressao + @EDITION_SQL + ')'
+  ELSE 'ALTER INDEX [' + Indexname + '] ON ' + '[' + [DB] + '].' + [OBJECTNAME] + ' REBUILD WITH (DATA_COMPRESSION = ' + Tipo_Compressao + @EDITION_SQL + ')'
+END AS [Apply Compression],
+
+CASE WHEN IndexID = 0 then 'ALTER TABLE [' + [DB] + '].' + [OBJECTNAME] + ' REBUILD WITH (DATA_COMPRESSION = ' + CurrentCompression + @EDITION_SQL + ')'
+  ELSE 'ALTER INDEX [' + Indexname + '] ON ' + '[' + [DB] + '].' + [OBJECTNAME] + ' REBUILD WITH (DATA_COMPRESSION = ' + CurrentCompression + @EDITION_SQL + ')'
+END AS [Rollback Compression]
+
+INTO #GANHO_POR_INDICE
+
+FROM
+  #CTE
+
+;WITH CALC_GANHO
+AS
+(
+SELECT
+  DB,
+  SUM(TAMANHO_ANTES)/1024.  AS Tamanho_antes,
+  SUM(Tamanho_Depois)/1024.  AS Tamanho_DEPOIS,
+  SUM(GANHO_MB)/1024. AS GANHO_GB,
+  count(*) QTD_INDEX,
+  SUM((CASE WHEN TAMANHO_ANTES BETWEEN 0 AND 10240 THEN 1 ELSE 0 END)) [<=10GB],
+  SUM((CASE WHEN TAMANHO_ANTES > 10240 AND TAMANHO_ANTES <= 51200 THEN 1 ELSE 0 END)) [11GB ate 50GB],
+  SUM((CASE WHEN TAMANHO_ANTES > 51200 AND TAMANHO_ANTES <= 102400 THEN 1 ELSE 0 END)) [51GB ate 100GB],
+  SUM((CASE WHEN TAMANHO_ANTES > 102400 AND TAMANHO_ANTES <= 204800 THEN 1 ELSE 0 END)) [101GB ate 200GB],
+  SUM((CASE WHEN TAMANHO_ANTES > 204800 AND TAMANHO_ANTES <= 512000 THEN 1 ELSE 0 END)) [201GB ate 500GB],
+  SUM((CASE WHEN TAMANHO_ANTES > 512000 THEN 1 ELSE 0 END)) [501GB >]
+FROM
+  #GANHO_POR_INDICE
+  Where Ganho_MB is not null
+GROUP BY
+  DB
+HAVING
+   SUM(GANHO_MB)/1024.  >= @TAMANHO_A_CONSIDERAR_GB -- FILTRANDO GANHO.
+)
+SELECT
+  DB,
+  CONVERT(DECIMAL(32,2),Tamanho_antes) [Tamanho Antes GB] ,
+  CONVERT(DECIMAL(32,2),Tamanho_Depois) [Estimativa Tamanho Depois GB] ,
+  CONVERT(DECIMAL(32,2),Ganho_GB) [Estimativa de Ganho GB],
+  QTD_INDEX as [Quantidade de Objetos],
+  [<=10GB],
+  [11GB ate 50GB],
+  [51GB ate 100GB],
+  [101GB ate 200GB],
+  [201GB ate 500GB],
+  [501GB >]
+
+  INTO #BASES_E_GANHO
+FROM
+  CALC_GANHO
+
+INSERT INTO #BASES_E_GANHO
+SELECT
+  'TOTAL:', CONVERT(DECIMAL(32,2),SUM([Tamanho Antes GB])),CONVERT(DECIMAL(32,2),SUM([Estimativa Tamanho Depois GB])),
+  CONVERT(DECIMAL(32,2),SUM([Estimativa de Ganho GB])),
+  sum([Quantidade de Objetos]) as [Quantidade de Objetos],
+  SUM([<=10GB]),
+  SUM([11GB ATE 50GB]),
+  SUM([51GB ATE 100GB]),
+  SUM([101GB ATE 200GB]),
+  SUM([201GB ATE 500GB]),
+  SUM([501GB >])
+FROM
+  #BASES_E_GANHO
+
+DELETE #BASES_E_GANHO WHERE DB = 'TOTAL:' AND [Tamanho Antes GB] is null
+
+-- GERANDO SCRIPTS
+if OBJECT_ID('DTS_TOOLS.dbo.BASES_E_GANHO') is null
+begin
+	SELECT * 
+	into DTS_TOOLS.dbo.BASES_E_GANHO
+	FROM #BASES_E_GANHO ORDER BY [Estimativa de Ganho GB]
+end
+else 
+BEGIN
+	INSERT INTO DTS_TOOLS.dbo.BASES_E_GANHO 
+	SELECT * FROM #BASES_E_GANHO ORDER BY [Estimativa de Ganho GB]
+end
+
+if OBJECT_ID('DTS_TOOLS.dbo.GANHO_POR_INDICE') is null
+begin
+	SELECT
+	  [DB],
+	  [ObjectName],
+	  [IndexName],
+	  CurrentCompression AS [Antiga Compressao],
+	  [Tipo_Compressao] AS [Futura Compressao],
+	  CONVERT(DECIMAL(32,2),[Tamanho_antes]) [Tamanho_antes],
+	  CONVERT(DECIMAL(32,2),[Tamanho_Depois]) [Tamanho_Depois],
+	  CONVERT(DECIMAL(32,2),[Ganho_MB]) [Ganho_MB],
+	  [Apply Compression],
+	  [Rollback Compression]
+	INTO DTS_TOOLS.dbo.GANHO_POR_INDICE
+	FROM
+	  #GANHO_POR_INDICE A
+	WHERE
+	  EXISTS (SELECT * FROM #BASES_E_GANHO B WHERE B.DB = A.DB) 
+	ORDER BY [Ganho_MB] DESC
+END
+else
+begin
+	INSERT INTO DTS_TOOLS.dbo.GANHO_POR_INDICE
+	SELECT
+	  [DB],
+	  [ObjectName],
+	  [IndexName],
+	  CurrentCompression AS [Antiga Compressao],
+	  [Tipo_Compressao] AS [Futura Compressao],
+	  CONVERT(DECIMAL(32,2),[Tamanho_antes]) [Tamanho_antes],
+	  CONVERT(DECIMAL(32,2),[Tamanho_Depois]) [Tamanho_Depois],
+	  CONVERT(DECIMAL(32,2),[Ganho_MB]) [Ganho_MB],
+	  [Apply Compression],
+	  [Rollback Compression]
+	FROM
+	  #GANHO_POR_INDICE A
+	WHERE
+	  EXISTS (SELECT * FROM #BASES_E_GANHO B WHERE B.DB = A.DB) 
+	ORDER BY [Ganho_MB] DESC
+end

@@ -1,0 +1,20 @@
+
+--Historico da execução do JOB via tabela.
+SELECT A.Step_Id, A.Message, A.Run_Date
+FROM msdb.dbo.Sysjobhistory A
+JOIN msdb.dbo.Sysjobs B ON A.Job_Id = B.Job_Id
+WHERE B.Name like '%teste_ls%' --Nome do JOB
+--AND A.Run_Date >= '20221106' -- Data em que o job foi executado.
+ORDER BY step_id
+
+--- verificação de falha de job---
+select *from msdb.dbo.sysjobhistory
+where step_name like '%chamada Procedure Envia Dados BI%' --nome do step
+
+use msdb
+select * from msdb..sysjobs where job_id = 510BB6F4-D293-4D96-94B2-F7C06751FFD9
+
+--Para descobrir o nome/id do JOB
+SELECT *
+FROM msdb.dbo.Sysjobs
+WHERE Name like '%cancela pedido%'

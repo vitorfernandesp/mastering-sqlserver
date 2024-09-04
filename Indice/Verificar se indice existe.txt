@@ -1,0 +1,20 @@
+SELECT Getdate(),
+       @@servername     Nm_Servidor,
+       Db_name(Db_id()) Nm_Database,
+       D.NAME           Nm_Tabela,
+       B.NAME           Nm_Indice,
+       avg_fragmentation_in_percent,
+       page_count,
+       fill_factor,
+       data_compression
+FROM   sys.Dm_db_index_physical_stats(Db_id(), NULL, NULL, NULL, NULL) A
+       JOIN sys.indexes B
+         ON A.object_id = B.object_id
+            AND A.index_id = B.index_id
+       JOIN sys.partitions C
+         ON C.object_id = B.object_id
+            AND C.index_id = B.index_id
+       JOIN sys.sysobjects D
+         ON A.object_id = D.id
+-- where b.name in ('nome do indice')
+-- where d.name in ('nome da tabela')

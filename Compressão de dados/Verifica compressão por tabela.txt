@@ -1,0 +1,10 @@
+EXEC sp_estimate_data_compression_savings 'dbo', '', NULL, NULL, 'PAGE'
+
+sp_estimate_data_compression_savings
+     [ @schema_name = ] 'schema_name'
+   , [ @object_name = ] 'object_name'
+   , [ @index_id = ] index_id
+   , [ @partition_number = ] partition_number
+   , [ @data_compression = ] 'data_compression'
+   , [ @xml_compression = ] xml_compression
+[ ; ]

@@ -1,0 +1,12 @@
+---Scripts para exclusão de job
+
+SELECT *
+  FROM [Traces].[dbo].[JobsMonitoringExclusions]
+ -- where job_id = '4E9AF210-81B5-4ED7-9B24-200AA7112ED4'
+
+  select name, job_id from msdb.dbo.sysjobs
+  where name like 'LOKI%'
+
+  insert into [Traces].[dbo].[JobsMonitoringExclusions] 
+  select job_id from msdb.dbo.sysjobs
+  where name like 'loki%'

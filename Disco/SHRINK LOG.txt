@@ -1,0 +1,16 @@
+-- Este script executa o schrink de LOG de todas as databases no ambiente, exceto a maste, model, tempdb e a msdb, que por padrão são os primeiros 4 ids da lista.
+
+exec sp_MSforeachdb 'use [?]
+IF DB_ID() > 4 AND EXISTS(SELECT name 
+FROM sys.databases 
+WHERE recovery_model_desc = ''FULL'' and name = db_name())
+BEGIN
+	DECLARE @LogFileName varchar(255)
+	SELECT  @logfilename = mf.name
+	FROM  sys.master_files mf 
+    INNER JOIN sys.databases db ON db.database_id = mf.database_id
+	WHERE mf.type = 1 -- 1 = Arquivo de Log
+	AND db.name = db_name()
+
+	DBCC SHRINKFILE (@LogFileName, 0)
+END'

@@ -1,0 +1,17 @@
+--Pegar o query Id
+select * from sys.query_store_query
+where
+query_hash in (0x091ECE18801E4603)
+order by last_compile_start_time desc
+option (hash join)
+
+ 
+
+
+--Pegar o query Id
+select * from sys.query_store_query
+where
+--query_hash in (0x322A89B3F3E96D30)
+query_id =6130103
+order by last_compile_start_time desc
+option (hash join)

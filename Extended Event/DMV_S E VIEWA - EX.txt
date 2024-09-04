@@ -1,0 +1,25 @@
+--VIEWS de catalogos (informações de definição daquela sessão)
+select * from sys.server_event_sessions
+
+select * from sys.server_event_session_events
+where event_session_id = 65845
+
+select * from sys.server_event_session_actions
+where event_session_id = 65845
+
+select * from sys.server_event_session_targets
+where event_session_id = 65842
+
+--DMV (sessões que estão startadas)
+--Infos dos eventos:
+select * from sys.dm_xe_sessions A
+inner join sys.dm_xe_session_events B
+ON A.address = b.event_session_address
+where name = 'XE_DeadLock'
+
+--infos dos targets:
+select * from sys.dm_xe_session_targets --(tipo de armazenamento dos dados)
+
+--Infos dos eventos:
+select * from sys.dm_xe_session_event_actions
+where event_name = 'database_xml_deadlock_report' or event_name = ' xml_deadlock_report')

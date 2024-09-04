@@ -1,0 +1,228 @@
+
+IF object_id('SP_GENERATE_SCRIPTS_DISABLE_INDICE') is null
+EXEC ('CREATE PROC SP_GENERATE_SCRIPTS_DISABLE_INDICE AS SELECT 1;')
+GO
+ALTER PROC SP_GENERATE_SCRIPTS_DISABLE_INDICE
+(
+	@A_PARTIR_DOS_ULTIMOS_X_DIAS INT = 90
+
+)
+AS
+
+SET NOCOUNT ON
+
+
+DECLARE @EDITION_SQL VARCHAR(500) = 
+  (SELECT
+    CASE WHEN CONVERT(VARCHAR(500),(SELECT  SERVERPROPERTY('Edition'))) LIKE '%DEVELOPER%' OR 
+          CONVERT(VARCHAR(500),(SELECT  SERVERPROPERTY('Edition')))  LIKE '%ENTERPRISE%'
+          THEN ' WITH (ONLINE = ON) '
+    ELSE ''
+    END
+)
+
+
+DECLARE @DESDE DATETIME = GETDATE() - @A_PARTIR_DOS_ULTIMOS_X_DIAS
+
+--select * from ##DESABILITAR_INDICES
+IF OBJECT_ID('tempdb..##DESABILITAR_INDICES') is not null drop table ##DESABILITAR_INDICES
+
+DECLARE
+	@NM_DATABASE VARCHAR(100) = ''
+
+SELECT TOP 1
+	@NM_DATABASE = name
+FROM
+	sys.databases 
+where
+	name in ('Traces','DTS_TOOLS')
+ORDER BY name
+	
+
+CREATE TABLE [dbo].[##DESABILITAR_INDICES](
+	[Dias_Historico] [int] NULL,
+	[Primeiro_historico] [datetime] NULL,
+	[Ultimo_historico] [datetime] NULL,
+	[Nm_Servidor] [varchar](50) NOT NULL,
+	[Nm_Database] [varchar](100) NULL,
+	[Nm_Tabela] [varchar](1000) NULL,
+	[Nm_Indice] [varchar](1000) NULL,
+	[Ultimo_Acesso] [datetime] NULL,
+	[Total_seeks] [bigint] NULL,
+	[Total_Scans] [bigint] NULL,
+	[Total_lookups] [bigint] NULL,
+	[Total_Updates] [bigint] NULL,
+	[DISABLE] [varchar](max) NULL
+)
+
+DECLARE @MSG VARCHAR(MAX) = ''
+
+SELECT
+	@MSG = '
+select 
+(datediff(ss,min(Dt_Historico),max(Dt_Historico)))/86400 as Dias_Historico,
+min(Dt_Historico) Primeiro_historico,
+max(Dt_Historico) Ultimo_historico,
+Nm_Servidor,
+Nm_Database,
+Nm_Tabela,
+Nm_Indice,
+(SELECT TOP 1 
+	Ultimo_Acesso
+ FROM
+ ' + @NM_DATABASE + '.dbo.Historico_Utilizacao_Indices hui1
+ WHERE
+	Ultimo_Acesso IS NOT NULL
+AND hui1.id_basedados = A.id_basedados and hui1.Id_Tabela = A.Id_Tabela and hui1.Nm_Indice = A.Nm_Indice
+
+ ORDER BY 
+		Dt_Historico DESC
+ ) AS Ultimo_Acesso,
+sum(convert(bigint,User_Seeks)) Total_seeks,
+sum(convert(bigint,User_Scans)) Total_Scans,
+sum(convert(bigint,User_Lookups)) Total_lookups,
+sum(convert(bigint,User_Updates)) Total_Updates,
+''ALTER INDEX [''+Nm_Indice+''] ON [''+ Nm_Database +'']..[''+Nm_Tabela+''] DISABLE'' AS [DISABLE]
+
+from ' + @NM_DATABASE + '..Historico_Utilizacao_Indices A
+join ' + @NM_DATABASE + '..Servidor B on A.Id_Servidor = B.Id_Servidor
+join ' + @NM_DATABASE + '..BaseDados C on A.Id_BaseDados = C.Id_BaseDados
+join ' + @NM_DATABASE + '..Tabela D on A.Id_Tabela = D.Id_Tabela
+where 
+	Tip_Indice = 2
+and A.Dt_Historico >= ''' + CONVERT(VARCHAR(10),@DESDE,112) + '''
+group by 
+Nm_Servidor,
+Nm_Database,
+Nm_Tabela,
+Nm_Indice,
+A.id_basedados,
+A.Id_Tabela
+having --convert(date,max(Dt_Historico)) = (select convert(date,max(Dt_Historico)) from ' + @NM_DATABASE + '..Historico_Utilizacao_Indices) and
+(
+sum(convert(bigint,User_Seeks)) +
+sum(convert(bigint,User_Scans)) +
+sum(convert(bigint,User_Lookups))
+)=0
+--and (datediff(ss,min(Dt_Historico),max(Dt_Historico)))/86400 >= 30
+OPTION(MAXDOP 1)
+'
+
+INSERT INTO [##DESABILITAR_INDICES]
+EXEC (@MSG)
+
+
+if object_id('tempdb..#SCRIPTS') is not null drop table #SCRIPTS
+CREATE TABLE #SCRIPTS (
+	[Nm_Database] varchar(max) NULL,
+	[TableName] varchar(max) NULL,
+	[IndexName] varchar(max) NULL,
+	[DISABLE] [varchar](max) NULL,
+	[ROLLBACK] [varchar](max) NULL,
+	[Indexsize(KB)] decimal(18,2) NULL,
+	Ultimo_Acesso datetime
+) 
+
+if OBJECT_ID('tempdb..#temp') is not null drop table #temp
+select distinct Nm_Database AS  name
+	into #temp
+from ##DESABILITAR_INDICES
+--where
+--	Nm_Database IN ('DadosSiga','dadosap5')
+
+declare @database_name varchar(3000), @COLLATION VARCHAR(MAX), @command varchar(max) = ''
+
+while exists (select * from #temp) 
+begin
+
+select top 1
+	@database_name = '[' + a.name + ']',
+	@COLLATION =  b.collation_name
+from
+	#temp A
+left join sys.databases b ON a.name = b.name
+
+
+select
+ @command =  (' use ' + @database_name + '
+;WITH CTE
+AS
+(SELECT
+OBJECT_SCHEMA_NAME(i.OBJECT_ID) AS SchemaName,
+OBJECT_NAME(i.OBJECT_ID) AS TableName,
+i.name AS IndexName,
+i.index_id AS IndexID,
+8 * SUM(a.used_pages) AS ''Indexsize(KB)'',
+Nm_Database,
+[DISABLE],
+Ultimo_Acesso
+
+FROM sys.indexes AS i
+JOIN sys.partitions AS p ON p.OBJECT_ID = i.OBJECT_ID AND p.index_id = i.index_id
+JOIN sys.allocation_units AS a ON a.container_id = p.partition_id
+JOIN ##DESABILITAR_INDICES B ON B.Nm_indice ' + isnull('COLLATE ' + @COLLATION,'') + ' = i.name ' + isnull('COLLATE ' + @COLLATION,'')  +
+' and OBJECT_NAME(i.OBJECT_ID) ' + isnull('COLLATE ' + @COLLATION,'') + '  =  B.Nm_Tabela ' + isnull('COLLATE ' + @COLLATION,'') + 
+' and ''' +  replace(replace(@database_name,'[',''),']','') +  ''' ' +  isnull('COLLATE ' + @COLLATION,'') +' =  B.Nm_Database ' + + isnull('COLLATE ' + @COLLATION,'') + '
+where
+	i.is_unique = 0 and i.type_desc = ''NONCLUSTERED''and i.is_primary_key = 0 
+and i.is_unique_constraint= 0
+GROUP BY 
+	i.OBJECT_ID,i.index_id,i.name,
+	Nm_Database,
+	[DISABLE],
+	Ultimo_Acesso
+
+)
+SELECT
+	--[SchemaName],
+	Nm_Database,
+	[TableName],
+	[IndexName],
+	[DISABLE],
+	''ALTER INDEX ['' + [IndexName] COLLATE Latin1_General_CI_AS + ''] ON ['' + Nm_Database COLLATE Latin1_General_CI_AS + ''].['' + [SchemaName]  COLLATE Latin1_General_CI_AS+ ''].['' + [TableName] COLLATE Latin1_General_CI_AS + ''] REBUILD' + @EDITION_SQL + ''' AS [ROLLBACK],
+	[Indexsize(KB)],
+	Ultimo_Acesso
+
+FROM
+	CTE
+
+	  '
+	  )
+
+print @command	
+	insert into #SCRIPTS ([Nm_Database] , [TableName] , [IndexName] , [DISABLE] , [ROLLBACK], [Indexsize(KB)],[Ultimo_Acesso])
+	EXEC(@command)
+
+delete #temp where [name] = replace(replace(@database_name,'[',''),']','')
+
+end
+
+SELECT
+	Servidor = @@SERVERNAME,
+	[Nm_Database],
+	CONVERT(DECIMAL(32,2),[Indexsize(KB)]/1024.) AS [Indexsize(MB)],
+	[TableName],
+	[Ultimo_Acesso],
+	[IndexName],
+	[DISABLE],
+	[ROLLBACK] = [ROLLBACK]
+
+FROM
+	#SCRIPTS  a 
+UNION ALL
+SELECT
+	@@SERVERNAME,
+null,
+CONVERT(DECIMAL(32,2),SUM([Indexsize(KB)])/1024.) AS [Indexsize(MB)],
+null,
+null,
+null,
+null,
+null
+
+FROM
+	#SCRIPTS
+ORDER BY
+	[Indexsize(MB)] DESC
+
+

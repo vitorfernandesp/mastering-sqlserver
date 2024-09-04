@@ -1,0 +1,14 @@
+
+select * from sys.dm_server_memory_dumps
+
+verificar versão com o select @@version
+
+
+https://sqlserverbuilds.blogspot.com/
+
+Geralmente muitos dos DUMPS que ocorrem tem relação com algum driver que está desatualizado.
+
+
+
+select * from Resultado_WhoisActive where Dt_Log
+ between '2022-08-20 15:50:00.000' and '2022-08-20 16:50:00.000' order by Dt_Log

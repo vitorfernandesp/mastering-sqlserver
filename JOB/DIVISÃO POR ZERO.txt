@@ -1,0 +1,7 @@
+--Verificar a base que a procedure esta sendo executada no job:
+--Após isso usar a base na execução do job, EX: traces
+
+begin tran
+update CheckList_Arquivos_MDF_LDF set maxsize = -1 where maxsize = 0
+commit
+

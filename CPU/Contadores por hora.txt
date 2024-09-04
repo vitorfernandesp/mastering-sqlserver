@@ -1,0 +1,77 @@
+DECLARE  @DT_INICIO DATETIME = '20210501 00:00'
+		,@DT_FIM DATETIME = '20220101 22:30'
+
+if object_id('tempdb..#cte1') is not null drop table tempdb..#cte1
+if object_id('tempdb..#cte2') is not null drop table tempdb..#cte2
+if object_id('tempdb..#cte3') is not null drop table tempdb..#cte3
+if object_id('tempdb..#cte4') is not null drop table tempdb..#cte4
+
+SELECT DT = CONVERT(DATE,DT_LOG),  datepart(HOUR,Dt_Log) HORA, BatchRequests = avg(VALOR)
+into #cte1
+ FROM Registro_Contador B 
+WHERE
+	B.Id_Contador = 1
+AND 	Dt_Log BETWEEN (@DT_INICIO) AND (@DT_FIM)
+and DATEPART(hour,Dt_Log) between 9 and 18
+group by
+	datepart(HOUR,Dt_Log),
+	CONVERT(DATE,DT_LOG)
+option(recompile)
+
+
+SELECT  DT = CONVERT(DATE,DT_LOG),  datepart(HOUR,Dt_Log) HORA,User_Connection = avg(VALOR)
+into #cte2
+FROM Registro_Contador B 
+WHERE
+	B.Id_Contador = 2
+AND 	Dt_Log BETWEEN (@DT_INICIO) AND (@DT_FIM)
+and DATEPART(hour,Dt_Log) between 9 and 18
+group by
+	datepart(HOUR,Dt_Log),
+	CONVERT(DATE,DT_LOG)
+option(recompile)
+
+SELECT  DT = CONVERT(DATE,DT_LOG),  datepart(HOUR,Dt_Log) HORA,CPU = avg(VALOR) 
+into #cte3
+FROM Registro_Contador B 
+WHERE
+	B.Id_Contador = 3
+AND 	Dt_Log BETWEEN (@DT_INICIO) AND (@DT_FIM)
+and DATEPART(hour,Dt_Log) between 9 and 18
+group by
+	datepart(HOUR,Dt_Log),
+	CONVERT(DATE,DT_LOG)
+option(recompile)
+
+SELECT  DT = CONVERT(DATE,DT_LOG),  datepart(HOUR,Dt_Log) HORA,[Page Life Expectancy] = avg(VALOR) 
+into #cte4
+FROM Registro_Contador B 
+WHERE
+	B.Id_Contador = 4
+AND 	Dt_Log BETWEEN (@DT_INICIO) AND (@DT_FIM)
+and DATEPART(hour,Dt_Log) between 9 and 18
+group by
+	datepart(HOUR,Dt_Log),
+	CONVERT(DATE,DT_LOG)
+option(recompile)
+
+select
+	data = convert(varchar(10),#cte1.dt,103) ,
+	#cte1.HORA,
+	AVG(BatchRequests) BatchRequests,
+	AVG(User_Connection) User_Connection,
+	AVG(CPU) CPU,
+	AVG([Page Life Expectancy]) [Page Life Expectancy]
+from
+	#cte1 
+inner join #cte2 on #cte1.DT = #cte2.DT and #cte1.hora = #cte2.hora
+inner join #cte3 on #cte1.DT = #cte3.DT and #cte1.hora = #cte3.hora
+inner join #cte4 on #cte1.DT = #cte4.DT and #cte1.hora = #cte4.hora
+GROUP BY
+	convert(varchar(10),#cte1.dt,103),
+	convert(date,#cte1.dt),
+	#cte1.hora
+order by 
+	convert(date,#cte1.dt),
+	#cte1.hora
+	option(maxdop 1,hash join)

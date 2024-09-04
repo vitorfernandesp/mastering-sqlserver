@@ -1,0 +1,13 @@
+/*
+Missing Index Details from ExecutionPlan1.sqlplan
+The Query Processor estimates that implementing the following index could improve the query cost by 99.814%.
+*/
+
+/*
+USE [DTS_TOOLS]
+GO
+CREATE NONCLUSTERED INDEX [DTS_SP_DISBLED_INDICE]
+ON [dbo].[Historico_Utilizacao_Indices] ([Id_BaseDados],[Id_Tabela],[Nm_Indice],[Ultimo_Acesso])
+INCLUDE ([Dt_Historico])
+GO
+*/

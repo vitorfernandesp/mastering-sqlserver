@@ -1,0 +1,15 @@
+--Modificar nome e o que mais necessário para rodar no ambiente
+
+
+CREATE EVENT SESSION [XE_DB_RESIZE] ON SERVER 
+ADD EVENT sqlserver.database_file_size_change(
+    ACTION(sqlserver.database_name,sqlserver.sql_text)
+    WHERE ([database_id]=(5))) --ID da database que é para ser monitorada
+ADD TARGET package0.event_file(SET filename=N'E:\XE\XE_DB_RESIZE.xel')
+WITH (MAX_MEMORY=4096 KB,EVENT_RETENTION_MODE=ALLOW_SINGLE_EVENT_LOSS,MAX_DISPATCH_LATENCY=30 SECONDS,MAX_EVENT_SIZE=0 KB,MEMORY_PARTITION_MODE=NONE,TRACK_CAUSALITY=ON,STARTUP_STATE=OFF)
+GO
+
+
+--Possível aumentar o autogroth caso tenha muitos processos
+--Descobrir o ID da databse :
+--select  * from sysdatabases

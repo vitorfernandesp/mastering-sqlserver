@@ -1,0 +1,73 @@
+-- TRAZER AS TOP QUERIES DO AMBIENTE
+declare @dt_inicio datetime = '20210419 00:00'
+		,@dt_fim datetime = '20210420 23:59:59.977'
+		,@qtd_minimo_execucao int = 5
+
+--- MODIFICAR A LINHA "order by total_duracao desc" DE ACORDO COM O QUE DESEJA BUSCAR. 
+if object_id('tempdb..#tmp') is not null drop table #tmp
+select top 10
+	DataBaseName,
+	LEFT(convert(varchar(max),textdata),66) as TRECHO,
+	sum(convert(bigint,cpu)) as total_cpu,
+	sum(convert(bigint,reads+writes)) as total_IOs,
+	sum(convert(bigint,duration)) as total_duracao,
+	avg(convert(bigint,cpu)) as media_cpu,
+	AVG(duration) as Media_duracao,
+	min(duration) as Menor_duracao,
+	max(duration) as Maior_duracao,
+	count(*) as Total_Execucoes
+		into #tmp
+from
+	Traces
+where  DataBaseName not in ('traces','DTS_TOOLS') and
+   StartTime between  @dt_inicio and @dt_fim--and HostName <> 'AL7001'
+group by
+	DataBaseName,
+	LEFT(convert(varchar(max),textdata),66)
+HAVING COUNT(*) > 5
+
+order by total_duracao desc
+OPTION(RECOMPILE)
+
+;with cte
+as
+(
+
+select
+a.DataBaseName,
+c1.full_text_sample,
+a.total_IOs,
+a.Total_Execucoes,
+dateadd(second,a.total_duracao,'19900101') as total_duracao,
+dateadd(ms,a.total_cpu,'19900101') as total_cpu,
+dateadd(ms,a.media_cpu,'19900101') as media_cpu,
+dateadd(second,a.Media_duracao,'19900101') as Media_duracao
+
+
+from
+	#tmp a 
+cross apply (
+			select top 1 
+					convert(varchar(max),b.textdata) full_text_sample					
+			from 
+				Traces b
+			where 
+				b.StartTime between  @dt_inicio and @dt_fim--and HostName <> 'AL7001'
+			and LEFT(convert(varchar(max),b.textdata),66) = a.TRECHO
+			order by b.Duration desc
+			) c1
+
+)
+select
+DataBaseName,
+full_text_sample,
+total_IOs,
+Total_Execucoes,
+RIGHT( '00' + CONVERT(VARCHAR(30),DATEDIFF(DAY,'19900101',total_duracao)),5)  + ' ' + CONVERT(VARCHAR(300),CONVERT(TIME(0),total_duracao))  total_duracao,
+RIGHT( '00' + CONVERT(VARCHAR(30),DATEDIFF(DAY,'19900101',total_cpu)),5)  + ' ' + CONVERT(VARCHAR(300),CONVERT(TIME(0),total_cpu))  total_cpu,
+RIGHT( '00' + CONVERT(VARCHAR(30),DATEDIFF(DAY,'19900101',media_cpu)),5)  + ' ' + CONVERT(VARCHAR(300),CONVERT(TIME(0),media_cpu))  media_cpu,
+RIGHT( '00' + CONVERT(VARCHAR(30),DATEDIFF(DAY,'19900101',Media_duracao)),5)  + ' ' + CONVERT(VARCHAR(300),CONVERT(TIME(0),Media_duracao)) Media_duracao 
+
+from
+	cte
+OPTION(RECOMPILE)

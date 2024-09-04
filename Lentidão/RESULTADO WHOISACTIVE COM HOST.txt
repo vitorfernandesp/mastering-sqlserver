@@ -1,0 +1,5 @@
+--ALTERAR HOST E DATA/HORA--
+
+select * from traces..Resultado_WhoisActive 
+	where host_name like '%PRN-PCP09%' 
+		and dt_log > '2022-08-05 00:00:07.770' order by Dt_Log

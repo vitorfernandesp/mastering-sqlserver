@@ -1,0 +1,2 @@
+--- verificação de falha de job---
+select *from msdb.dbo.sysjobhistory

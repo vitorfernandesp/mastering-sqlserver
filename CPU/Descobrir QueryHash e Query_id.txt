@@ -1,0 +1,11 @@
+select query_hash, * from sys.dm_exec_requests where session_id = 64 --colocar session id que está com lentidão (pode ser encontrada via whoisactive e afins).
+
+--Para descobrir o query_id a respeito dessa query, depois de pega-la é so utilizar no query store da base especifica para verificação.
+
+select * from sys.query_store_query
+where
+	query_hash in (colocar o query_hash aqui)
+order by last_execution_time desc
+option (hash join)
+
+--Query store da base --> Tracked Queries --> Configure: colocar o ID e opção desejada (ex: CPU)

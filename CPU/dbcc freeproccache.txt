@@ -1,0 +1,1 @@
+dbcc freeproccache(colocar o plan handle)

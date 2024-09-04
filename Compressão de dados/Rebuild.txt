@@ -1,0 +1,8 @@
+
+ALTER INDEX "NomeIndice" ON "dbo(schema)"."NomeTabela" REBUILD WITH(DATA_COMPRESSION=Page, ONLINE=ON) --Com compressão
+
+
+
+ALTER INDEX "NomeIndice" ON "dbo(schema)"."NomeTabela" REBUILD WITH(ONLINE=ON)--Somente REBUILD
+
+--REBUILD ONLINE SOMENTE SQL SERVER 2016 +

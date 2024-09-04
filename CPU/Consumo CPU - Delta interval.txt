@@ -1,0 +1,2 @@
+--delta interval, consumo CPU
+sp_whoisactive @get_outer_command = 1, @get_plans = 1, @delta_interval = 5, @sort_order = '[CPU_delta] DESC'

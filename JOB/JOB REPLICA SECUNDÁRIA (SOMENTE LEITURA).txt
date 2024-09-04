@@ -1,0 +1,15 @@
+IF EXISTS(SELECT 1 FROM sys.dm_hadr_availability_replica_states WHERE is_local = 1 AND role_desc = 'PRIMARY' )
+          OR (SELECT COUNT(*) FROM  sys.dm_hadr_availability_replica_states) = 0
+          BEGIN
+
+EXEC sp_WhoIsActive @get_outer_command = 1,@get_plans = 1,
+	@output_column_list = '[collection_time][d%][database_name][session_id][blocking_session_id]
+	[sql_text][login_name][wait_info][status][percent_complete][host_name][sql_command][reads]
+	[writes][query_plan][CPU][tempdb_allocations][tempdb_current][physical_reads][used_memory]
+	[open_tran_count][program_name][start_time][login_time][request_id]',
+	@destination_table = 'Resultado_WhoisActive'
+
+          END
+          ELSE
+          BEGIN
+          PRINT 'This server is the secondary replica - aborting'

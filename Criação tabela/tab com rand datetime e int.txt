@@ -1,0 +1,54 @@
+DECLARE @FromDate DATETIME2(0)
+DECLARE @ToDate   DATETIME2(0)
+
+SET @FromDate = '2021-01-01 01:22:13' 
+SET @ToDate = '2023-12-31 23:56:31'
+
+DECLARE @Seconds INT = DATEDIFF(SECOND, @FromDate, @ToDate)
+DECLARE @Random INT = ROUND(((@Seconds-1) * RAND()), 0)
+
+
+
+Insert Into teste_ints values(
+(Select Cast(rand(checksum(newid()))*1000000  as int)),
+(Select Cast(rand(checksum(newid()))*1000000  as int)),
+(Select Cast(rand(checksum(newid()))*2  as int)),
+(Select Cast(rand(checksum(newid()))*2  as int)),
+(SELECT DATEADD(SECOND, @Random, @FromDate)),
+(Select Cast(rand(checksum(newid()))*2  as int))
+)
+go 100000
+
+--select * from teste_ints
+--truncate table teste_ints
+
+
+--alter table teste_ints
+--add integrado bit,
+--ind_ativo bit,
+--dta_atualizacao datetime,
+--ind_erro_dados bit
+
+
+--select cod1, cod2 from teste_ints
+--where
+--cod1 = 500 and cod2 = 2678
+--or cod1 = 4397 and cod2 = 23
+
+--declare @cod1 int = 1
+--declare @cod2 int = 197011
+--declare @cod3 int = 764
+--declare @cod4 int = 2576
+--declare @cod5 int = 2455
+--declare @cod6 int = 35434
+--declare @cod7 int = 72540
+--declare @cod8 int = 365
+--declare @cod9 int = 25
+--declare @cod10 int = 8
+
+--select * from teste_ints where cod1 = @cod1 and cod2 = @cod2
+--or cod1 = @cod3 and cod2 = @cod4
+--or cod1 = @cod5 and cod2 = @cod6
+--or cod1 = @cod7 and cod2 = @cod8
+--or cod1 = @cod9 and cod2 = @cod9
+

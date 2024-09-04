@@ -1,0 +1,1 @@
+ALTER DATABASE tempdb MODIFY FILE (NAME = 'tempdev', SIZE = <target_size_in_MB>); 

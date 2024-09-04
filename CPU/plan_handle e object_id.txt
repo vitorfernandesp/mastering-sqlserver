@@ -1,0 +1,12 @@
+-- Pegar o object_ID
+
+SELECT 
+  name,
+  object_id,
+  OBJECT_ID(name) AS [OBJECT_ID(name)]
+FROM sys.objects
+WHERE name = 'spr_pre_cadastro_mc1'
+
+-- Pegar o plan_handle
+
+select top 1 * from sys.dm_exec_procedure_stats where object_id = 452196661

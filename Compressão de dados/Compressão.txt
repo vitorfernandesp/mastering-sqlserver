@@ -1,0 +1,9 @@
+use databasename 
+
+alter table nomedatabase 
+with (data_compression = page)
+
+
+
+alter table nomedatabase
+with (data_compression = row)

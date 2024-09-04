@@ -1,0 +1,4 @@
+USE msdb; 
+go 
+EXECUTE dbo.sysmail_start_sp; 
+Go

@@ -1,0 +1,31 @@
+Acessando ambiente. Serviços rodando:
+
+
+Instância reiniciada?
+
+
+Verificando as bases. Apenas uma offline:
+
+
+
+Analisando error log. Ocorreram dois Dumps no ambiente:
+
+
+
+Arquivos de dump:
+
+
+
+Arquivos compactados na área de trabalho:
+
+
+
+Verificando versão do SQL Server:
+
+
+
+A versão atual do SQL no ambiente não está atualizada. A versão mais atual é o Cumulative update 16, enquanto o ambiente está no 14:
+
+
+
+Os erros de memory dump quase sempre são corrigidos nessas atualizações. Dessa forma, solicitamos uma janela de atuação. Pedimos 2 horas para essa atualização, podendo finalizar antes.

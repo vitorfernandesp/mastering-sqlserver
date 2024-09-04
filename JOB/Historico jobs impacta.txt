@@ -1,0 +1,8 @@
+
+select * from msdb..sysjobhistory
+
+SELECT sj.name , jh.* FROM msdb..SYSJOBS as sj
+INNER JOIN msdb..sysjobhistory as jh ON jh.job_id = sj.job_id
+WHERE sj.NAME  like '%NOMEDOJOB%'
+--and jh.run_date = '20221227' -- DIA DA FALHA
+

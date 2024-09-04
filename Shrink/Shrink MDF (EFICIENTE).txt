@@ -1,0 +1,29 @@
+---- NÃO ESQUECER DE ALTERAR O NOME DA BASE----
+
+ 
+
+USE NOMEBASE
+GO
+
+DECLARE @FileName sysname = N'NOMEBASE';
+DECLARE @TargetSize INT = (SELECT 1 + size*8./1024 FROM sys.database_files WHERE name = @FileName);
+DECLARE @Factor FLOAT = .999;
+
+WHILE @TargetSize > 0
+BEGIN
+    SET @TargetSize *= @Factor;
+    DBCC SHRINKFILE(@FileName, @TargetSize);
+    DECLARE @msg VARCHAR(200) 
+
+     SET @msg =   ('Shrink file completed. Target Size: '+CONVERT (varchar(max),@TargetSize)+' MB. Timestamp: '+ CONVERT (varchar(max), CURRENT_TIMESTAMP))
+    RAISERROR(@msg, 1, 1) WITH NOWAIT;
+    WAITFOR DELAY '00:00:01';
+END;
+
+ 
+
+/*
+--ACOMPANHAMENTO SHRINK COLOCAR EM UMA OUTRA QUERY--
+SELECT TYPE_DESC, NAME, size, max_size, growth, is_percent_growth 
+FROM sys.database_files;
+*/

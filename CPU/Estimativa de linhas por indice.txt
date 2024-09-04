@@ -1,0 +1,1 @@
+dbcc show_statistics (nome_tabela, 'nome_indice')

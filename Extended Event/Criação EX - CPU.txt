@@ -1,0 +1,14 @@
+--Modificar nome e o que mais necessário para rodar no ambiente
+
+CREATE EVENT SESSION [Teste_CPU_ExtendedEvent] ON SERVER 
+ADD EVENT sqlserver.sp_statement_completed(SET collect_object_name=(1),collect_statement=(1)
+    ACTION(sqlserver.client_hostname,sqlserver.database_name,sqlserver.plan_handle,sqlserver.query_hash_signed,sqlserver.query_plan_hash_signed,sqlserver.session_id,sqlserver.sql_text,sqlserver.tsql_frame,sqlserver.tsql_stack,sqlserver.username)
+    WHERE ([cpu_time]>=(10000))),
+ADD EVENT sqlserver.sql_statement_completed(SET collect_parameterized_plan_handle=(1)
+    ACTION(sqlserver.client_hostname,sqlserver.database_name,sqlserver.plan_handle,sqlserver.query_hash_signed,sqlserver.query_plan_hash_signed,sqlserver.session_id,sqlserver.sql_text,sqlserver.tsql_frame,sqlserver.tsql_stack,sqlserver.username)
+    WHERE ([cpu_time]>=(10000)))
+ADD TARGET package0.event_file(SET filename=N'E:\XE\CPU_TESTE.xel',max_file_size=(256))
+WITH (MAX_MEMORY=102400 KB,EVENT_RETENTION_MODE=ALLOW_MULTIPLE_EVENT_LOSS,MAX_DISPATCH_LATENCY=30 SECONDS,MAX_EVENT_SIZE=102400 KB,MEMORY_PARTITION_MODE=NONE,TRACK_CAUSALITY=ON,STARTUP_STATE=OFF)
+GO
+
+
