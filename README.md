@@ -1,4 +1,4 @@
-# 🗃️ SQL Consultas úteis do dia a dia
+# 🗃️ SQL Consultas do dia a dia
 
 Bem-vindo ao repositório de consultas SQL que utilizo diariamente como DBA!
 
