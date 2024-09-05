@@ -1,4 +1,4 @@
-use BA_DBA
+use database
 
 --exec [sp_dba_Verifica_Locks]
 IF (OBJECT_ID('dbo.sp_dba_Verifica_Locks') IS NULL) EXEC('CREATE PROCEDURE sp_dba_Verifica_Locks AS SELECT 1')
@@ -110,7 +110,7 @@ BEGIN
 
 
     ------------------------------------------------
-    -- Gera o nível dos locks
+    -- Gera o nÃ­vel dos locks
     ------------------------------------------------
 
     UPDATE @Monitoramento_Locks
