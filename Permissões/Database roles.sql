@@ -1,4 +1,4 @@
-use BA_TodaConta
+use database
 
 SELECT
     C.[name] AS Ds_Usuario,
