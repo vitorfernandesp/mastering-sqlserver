@@ -25,7 +25,7 @@ https://gist.github.com/LitKnd
 
 *****************************************************************************/
 
-use BA_TodaConta
+use database
 
 
 SELECT 
