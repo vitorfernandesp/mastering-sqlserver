@@ -1,4 +1,4 @@
-use BA_TodaConta
+use database
 
 SELECT 
     s.[name] AS [schema],
