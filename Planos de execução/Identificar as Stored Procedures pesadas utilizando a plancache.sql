@@ -1,4 +1,4 @@
-use BA_TodaConta
+use database
 go
 SELECT TOP(100)
     B.[name] AS rotina,
